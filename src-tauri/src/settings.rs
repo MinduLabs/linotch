@@ -1,5 +1,5 @@
 //! Things the tray menu toggles: autostart, the GNOME top-bar helper extension, and GNOME's own banners.
-use std::{fs, path::PathBuf, process::Command};
+use std::{fs, path::PathBuf};
 
 const UUID: &str = "linotch-helper@mindulabs";
 /// Names used before the project was called Linotch; cleaned up so upgrades leave nothing behind.
@@ -12,7 +12,7 @@ fn home() -> PathBuf {
 }
 
 fn run(cmd: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new(cmd).args(args).output().ok()?;
+    let out = crate::host::command(cmd).args(args).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 

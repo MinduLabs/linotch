@@ -1,4 +1,7 @@
+mod alarm;
 mod bt;
+mod downloads;
+mod host;
 mod icons;
 mod media;
 mod mic;
@@ -25,6 +28,15 @@ pub fn run() {
             let handle = app.handle();
             settings::install_extension();
             settings::take_over_banners();
+            // SIGINT/SIGTERM (logout, `kill`) must still go through RunEvent::Exit so GNOME's banners come back.
+            if let Ok(mut signals) = signal_hook::iterator::Signals::new([signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM]) {
+                let h = handle.clone();
+                std::thread::spawn(move || {
+                    if signals.forever().next().is_some() {
+                        h.exit(0);
+                    }
+                });
+            }
             tray::build(handle)?;
             win::setup(handle)?;
             media::spawn(handle.clone());
@@ -33,13 +45,15 @@ pub fn run() {
             volume::spawn(handle.clone());
             bt::spawn(handle.clone());
             mic::spawn(handle.clone());
+            downloads::spawn(handle.clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             win::set_hit_rect,
             media::media_cmd,
             media::media_seek,
-            notif::open_app
+            notif::open_app,
+            alarm::alarm
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

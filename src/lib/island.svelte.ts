@@ -8,7 +8,10 @@ export type Alert =
   | { kind: "notif"; app: string; summary: string; body: string; desktopEntry: string | null; icon: string | null }
   | { kind: "bluetooth"; name: string; icon: string; connected: boolean; battery: number | null }
   | { kind: "mic"; app: string }
+  | { kind: "download"; name: string }
   | { kind: "timer" };
+
+export type Download = { name: string; size: number; speed: number };
 
 export type Mode = "idle" | "compact" | "expanded" | "alert";
 export type Size = { w: number; h: number; r: number };
@@ -36,14 +39,17 @@ class Island {
   muted = $state(false);
   /** App currently recording from the microphone (a call, Meet, Zoom...). */
   micApp = $state<string | null>(null);
+  /** Partial files currently growing in the download folder. */
+  downloads = $state<Download[]>([]);
 
   #mediaGone: ReturnType<typeof setTimeout> | undefined;
+  #art: string | null = null;
   #alertTimeout: ReturnType<typeof setTimeout> | undefined;
   #leaveTimeout: ReturnType<typeof setTimeout> | undefined;
   #lastPower: { plugged: boolean } | null = null;
 
   mode = $derived<Mode>(
-    this.alert ? "alert" : this.hovering ? "expanded" : this.media || this.timerEnd || this.micApp ? "compact" : "idle",
+    this.alert ? "alert" : this.hovering ? "expanded" : this.media || this.timerEnd || this.micApp || this.downloads.length ? "compact" : "idle",
   );
 
   size = $derived<Size>(
@@ -88,15 +94,20 @@ class Island {
       this.now = Date.now();
       if (this.timerEnd && this.now >= this.timerEnd) {
         this.timerEnd = null;
-        this.pushAlert({ kind: "timer" }, 6000);
+        this.ringAlarm();
       }
     }, 250);
 
     // Changing track briefly reports no metadata. Hold the last track for a moment so the
     // island doesn't flip to the clock (and resize) in between.
+    // Cover art comes on its own event, only when it changes (it is large); merge it in here.
+    await listen<string | null>("media-art", (e) => {
+      this.#art = e.payload;
+      if (this.media) this.media = { ...this.media, art: this.#art };
+    });
     await listen<Media | null>("media", (e) => {
       clearTimeout(this.#mediaGone);
-      if (e.payload) this.media = e.payload;
+      if (e.payload) this.media = { ...e.payload, art: this.#art };
       else this.#mediaGone = setTimeout(() => (this.media = null), 2500);
     });
     await listen<{ percent: number; charging: boolean; plugged: boolean } | null>("power", (e) => {
@@ -111,6 +122,15 @@ class Island {
       this.micApp = e.payload?.app ?? null;
       if (started) this.pushAlert({ kind: "mic", app: e.payload!.app }, 2500);
     });
+    // Crossing events straight from GTK (see win.rs): the DOM's mouseenter/mouseleave alone get lost.
+    await listen("pointer-left", () => this.leave());
+    await listen<[number, number]>("pointer-entered", (e) => {
+      const [x, y] = e.payload;
+      this.pointerAt(x, y);
+      if (document.elementFromPoint(x, y)?.closest(".pill")) this.enter();
+    });
+    await listen<Download[]>("downloads", (e) => (this.downloads = e.payload));
+    await listen<string>("download-done", (e) => this.pushAlert({ kind: "download", name: e.payload }, 3500));
     await listen<{ kind: string; name: string; icon: string; battery: number | null }>("bluetooth", (e) => {
       const { kind, name, icon, battery } = e.payload;
       const cur = this.alert;
@@ -129,19 +149,51 @@ class Island {
     });
   }
 
+  /** Timer done: a ringing "Time's up" that stays until it is clicked (the sound gives up after 2 min). */
+  ringAlarm() {
+    clearTimeout(this.#alertTimeout);
+    this.alert = { kind: "timer" };
+    invoke("alarm", { on: true }).catch(() => {});
+  }
+
   pushAlert(a: Alert, ms: number) {
+    // A ringing alarm is not pushed aside by a volume change or a notification.
+    if (this.alert?.kind === "timer") return;
     this.alert = a;
     clearTimeout(this.#alertTimeout);
     this.#alertTimeout = setTimeout(() => (this.alert = null), ms);
   }
 
   dismissAlert() {
+    if (this.alert?.kind === "timer") invoke("alarm", { on: false }).catch(() => {});
     clearTimeout(this.#alertTimeout);
     this.alert = null;
   }
 
   // After clicking an alert the cursor is still over the pill; don't pop open the clock until it leaves.
   #suppressHover = false;
+
+  /** Last pointer position seen inside the window (client px). */
+  #pointer: { x: number; y: number } | null = null;
+  pointerAt(x: number, y: number) {
+    this.#pointer = { x, y };
+  }
+  /**
+   * The input region shrinks together with the pill, and a pointer left outside it sends no further events,
+   * so no mouseleave ever arrives and the island would stay open. If the last known position is outside the
+   * new region the pointer must be outside too (inside it, we would be getting move events): leave now.
+   */
+  recheckHover(size: Size) {
+    if (!this.hovering || !this.#pointer) return;
+    const half = (Math.ceil(size.w) + 24) / 2;
+    const cx = window.innerWidth / 2;
+    const { x, y } = this.#pointer;
+    if (Math.abs(x - cx) > half || y > Math.ceil(size.h)) {
+      clearTimeout(this.#leaveTimeout);
+      this.#suppressHover = false;
+      this.hovering = false;
+    }
+  }
 
   enter() {
     clearTimeout(this.#leaveTimeout);
@@ -163,7 +215,7 @@ class Island {
 
   control = (action: "toggle" | "next" | "prev") => invoke("media_cmd", { action });
   seek = (fraction: number) => {
-    if (!this.media) return;
+    if (!this.media || this.media.length <= 0) return; // live stream: nothing to seek in
     const target = fraction * this.media.length;
     return invoke("media_seek", { offsetUs: Math.round(target - this.media.position) });
   };
@@ -177,3 +229,13 @@ export function setHitRect(size: Size) {
 }
 
 export const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+export const fmtBytes = (n: number) => {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1000 && i < units.length - 1) {
+    n /= 1000;
+    i++;
+  }
+  return `${n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+};

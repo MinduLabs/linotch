@@ -14,29 +14,32 @@ It sits at the top-centre of the screen, shrinks to a notch when idle and spring
 
 ## Requirements
 
-Developed on Ubuntu 22.04 (GNOME 42, Wayland). Needs `pactl` (PulseAudio / PipeWire), `dbus-monitor` and `gtk-launch`.
+Developed on Ubuntu 26.04 (GNOME 50, Wayland). Needs `pactl` (`pulseaudio-utils`, works with PipeWire), `dbus-monitor` and `gtk-launch`.
 The window runs through XWayland (`GDK_BACKEND=x11`) because GNOME has no layer-shell.
 
 The GNOME top bar is drawn above normal windows, so *Enable notch bar* installs a small extension
 (`gnome-extension/`) that makes the bar transparent, moves the clock to the right and lets clicks pass
 through. The first time, GNOME only loads it after you log out and in again. The extension targets
-GNOME Shell 42 only for now.
+GNOME Shell 45 – 50 (ESM); GNOME 42 is no longer supported.
 
 ## Development
+
+Build needs the usual Tauri Linux packages plus `libayatana-appindicator3-dev` (the bundler looks the tray library up through pkg-config).
 
 ```bash
 pnpm install
 pnpm tauri dev
 ```
 
-Build an AppImage and a `.deb`:
+Build the AppImage or the `.deb` inside Docker (nothing but Docker needed on the host):
 
 ```bash
-NO_STRIP=true pnpm tauri build
+./build.sh appimage
+./build.sh deb
 ```
 
-Files end up in `src-tauri/target/release/bundle/`.
+Files end up in `dist/`.
 
 ## Status
 
-Early work in progress. Known gaps: GNOME 45+ extension, multiple monitors, camera detection.
+Early work in progress. Known gaps: multiple monitors, camera detection.

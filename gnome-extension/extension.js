@@ -1,9 +1,10 @@
-/* GNOME Shell 42 (Ubuntu 22.04). The top bar is drawn above client windows, so to let the
- * Linotch window show in the middle we empty the centre, make the bar transparent and let
- * pointer events fall through the bar's empty space. */
-const Main = imports.ui.main;
+/* GNOME Shell 45+ (ESM). The top bar is drawn above client windows, so to let the Linotch
+ * window show in the middle we empty the centre, make the bar transparent and let pointer
+ * events fall through the bar's empty space. */
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-class LinotchHelper {
+export default class LinotchHelper extends Extension {
     enable() {
         const panel = Main.panel;
         this._dm = panel.statusArea.dateMenu;
@@ -27,8 +28,4 @@ class LinotchHelper {
         panel._centerBox.add_child(this._dm.container);
         this._dm = null;
     }
-}
-
-function init() {
-    return new LinotchHelper();
 }

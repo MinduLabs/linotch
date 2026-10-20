@@ -1,9 +1,10 @@
+use crate::host;
 use serde::Serialize;
 use std::{
     fs,
     io::{BufRead, BufReader},
     path::PathBuf,
-    process::{Command, Stdio},
+    process::Stdio,
     thread,
     time::{Duration, Instant},
 };
@@ -32,7 +33,7 @@ fn quoted(line: &str) -> Option<String> {
 /// Args: app_name, replaces_id, icon, summary, body, actions[], hints{}, expire_timeout.
 pub fn spawn(app: AppHandle) {
     thread::spawn(move || {
-        let Ok(mut child) = Command::new("dbus-monitor")
+        let Ok(mut child) = host::command("dbus-monitor")
             .args(["interface='org.freedesktop.Notifications',member='Notify'"])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -185,7 +186,7 @@ pub fn open_app(desktop_entry: Option<String>, app: String) -> Result<(), String
     // gtk-launch exits non-zero for an unknown id, so fall through to the next candidate.
     thread::spawn(move || {
         for id in candidates {
-            if Command::new("gtk-launch").arg(&id).status().is_ok_and(|s| s.success()) {
+            if host::command("gtk-launch").arg(&id).status().is_ok_and(|s| s.success()) {
                 break;
             }
         }

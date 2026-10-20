@@ -2,5 +2,5 @@
   "uuid": "linotch-helper@mindulabs",
   "name": "Linotch Helper",
   "description": "Clears the centre of the top bar (transparent bar, clock moved right, clicks pass through) so the Linotch window shows there.",
-  "shell-version": ["42"]
+  "shell-version": ["45", "46", "47", "48", "49", "50"]
 }

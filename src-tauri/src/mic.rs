@@ -1,5 +1,6 @@
+use crate::host;
 use serde::Serialize;
-use std::{collections::HashSet, process::Command, thread, time::Duration};
+use std::{collections::HashSet, thread, time::Duration};
 use tauri::{AppHandle, Emitter};
 
 #[derive(Serialize, Clone, PartialEq)]
@@ -8,7 +9,7 @@ struct Mic {
 }
 
 fn pactl(args: &[&str]) -> String {
-    Command::new("pactl")
+    host::command("pactl")
         .args(args)
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())

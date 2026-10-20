@@ -2,8 +2,9 @@
   import "../app.css";
   import { onMount } from "svelte";
   import { scale } from "svelte/transition";
+  import Eq from "$lib/Eq.svelte";
   import { cubicOut } from "svelte/easing";
-  import { island, setHitRect, fmt } from "$lib/island.svelte";
+  import { island, setHitRect, fmt, fmtBytes } from "$lib/island.svelte";
   import { Spring, OPEN, CLOSE } from "$lib/spring";
 
 
@@ -34,7 +35,9 @@
       for (const s of [sw, sh, sr]) s.snap();
       apply();
       raf = 0;
-      setHitRect({ w: sw.target, h: sh.target, r: sr.target }); // shrink the hit area once at rest
+      const rest = { w: sw.target, h: sh.target, r: sr.target };
+      setHitRect(rest); // shrink the hit area once at rest
+      island.recheckHover(rest);
       return;
     }
     raf = requestAnimationFrame(tick);
@@ -61,7 +64,24 @@
   });
 
   const pos = $derived(island.media ? (island.media.length ? island.media.position / island.media.length : 0) : 0);
+  const dlSize = $derived(island.downloads.reduce((n, d) => n + d.size, 0));
+  const dlSpeed = $derived(island.downloads.reduce((n, d) => n + d.speed, 0));
   const timerFrac = $derived(island.timerTotal ? island.timerLeft / island.timerTotal : 0);
+
+  /**
+   * Layers keep the size of the shape they belong to instead of following the pill frame by frame, so their
+   * content never reflows while the pill morphs; the pill just clips them. An outgoing layer stops updating,
+   * so it keeps its old size while it fades.
+   */
+  function fit(node: HTMLElement, size: { w: number; h: number }) {
+    const set = ({ w, h }: { w: number; h: number }) => {
+      node.style.width = `${w}px`;
+      node.style.height = `${h}px`;
+      node.style.marginLeft = `${-w / 2}px`;
+    };
+    set(size);
+    return { update: set };
+  }
 
   function seekClick(e: MouseEvent) {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -75,14 +95,19 @@
     class="pill"
     class:alert={island.mode === "alert"}
     bind:this={pillEl}
-    onmouseenter={() => island.enter()}
+    onmouseenter={(e) => {
+      island.pointerAt(e.clientX, e.clientY);
+      island.enter();
+    }}
+    onmousemove={(e) => island.pointerAt(e.clientX, e.clientY)}
     onmouseleave={() => island.leave()}
     onclick={() => island.alert && island.openAlert()}
   >
+    <div class="clip">
     <!-- ALERT -->
     {#if island.mode === "alert" && island.alert}
       {@const a = island.alert}
-      <div class="layer row" in:scale={IN} out:scale={OUT}>
+      <div class="layer row" use:fit={island.size} in:scale={IN} out:scale={OUT}>
         {#if a.kind === "power"}
           <svg class="ico {a.charging ? 'green' : ''}" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z" fill="currentColor" /></svg>
           <span class="grow">{a.charging ? "Charging" : "On battery"}</span>
@@ -108,6 +133,10 @@
           {#if a.connected && a.battery !== null}
             <b class="batt" class:low={a.battery <= 20}>{a.battery}%</b>
           {/if}
+        {:else if a.kind === "download"}
+          <svg class="ico green" viewBox="0 0 24 24"><path d="M12 3v11m0 0-4.5-4.5M12 14l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          <span class="grow ellipsis">{a.name}</span>
+          <span class="dim-text">Downloaded</span>
         {:else if a.kind === "mic"}
           <span class="dot"></span>
           <span class="grow ellipsis">{a.app}</span>
@@ -120,10 +149,12 @@
             <span>{a.body}</span>
           </div>
         {:else}
-          <div class="notif">
+          <svg class="ico orange ring" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2" /><path d="M12 9v4l3 2M5 3 2 6m17-3 3 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" /></svg>
+          <div class="notif grow">
             <small>Timer</small>
             <strong>Time's up</strong>
           </div>
+          <span class="dim-text">Click to stop</span>
         {/if}
       </div>
 
@@ -131,20 +162,24 @@
     {:else if island.mode === "expanded"}
       {#if island.media}
         {@const m = island.media}
-        <div class="layer expanded" in:scale={IN} out:scale={OUT}>
+        <div class="layer expanded" use:fit={island.size} in:scale={IN} out:scale={OUT}>
           <div class="top">
             {#if m.art}<img class="art" src={m.art} alt="" />{:else}<div class="art ph"></div>{/if}
             <div class="meta">
               <strong>{m.title}</strong>
               <span>{m.artist}</span>
             </div>
-            <div class="eq" class:on={m.playing}><i></i><i></i><i></i><i></i></div>
+            <Eq on={m.playing} />
           </div>
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="seek" onclick={seekClick}>
-            <div class="track"><i style:width="{pos * 100}%"></i></div>
+          <div class="seek" class:live={m.length <= 0} onclick={seekClick}>
+            <div class="track"><i style:width="{m.length > 0 ? pos * 100 : 100}%"></i></div>
           </div>
-          <div class="times"><span>{fmt(m.position / 1e6)}</span><span>-{fmt(Math.max(0, (m.length - m.position) / 1e6))}</span></div>
+          {#if m.length > 0}
+            <div class="times"><span>{fmt(m.position / 1e6)}</span><span>-{fmt(Math.max(0, (m.length - m.position) / 1e6))}</span></div>
+          {:else}
+            <div class="times"><span class="livetag"><b></b>LIVE</span></div>
+          {/if}
           <div class="ctrl">
             <button class:dim={!m.canPrev} onclick={() => island.control("prev")} aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" fill="currentColor" /></svg></button>
             <button class="big" onclick={() => island.control("toggle")} aria-label="Play/Pause">
@@ -158,7 +193,7 @@
           </button>
         </div>
       {:else}
-        <div class="layer expanded" in:scale={IN} out:scale={OUT}>
+        <div class="layer expanded" use:fit={island.size} in:scale={IN} out:scale={OUT}>
           <div class="clock">
             {#if island.timerEnd}
               <div class="big-time">{fmt(island.timerLeft)}</div>
@@ -180,21 +215,29 @@
 
     <!-- COMPACT -->
     {:else if island.mode === "compact"}
-      <div class="layer row split" in:scale={IN} out:scale={OUT}>
-        {#if island.media}
+      <div class="layer row split" use:fit={island.size} in:scale={IN} out:scale={OUT}>
+        <!-- A download outranks media: it is short-lived, and a paused browser tab still counts as media. -->
+        {#if island.downloads.length && !island.timerEnd}
+          <svg class="ico dl" viewBox="0 0 24 24"><path d="M12 3v11m0 0-4.5-4.5M12 14l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        {:else if island.media}
           {#if island.media.art}<img class="art sm" src={island.media.art} alt="" />{:else}<div class="art sm ph"></div>{/if}
         {:else}
           <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2" /><path d="M12 9v4l3 2" stroke="currentColor" stroke-width="2" fill="none" /></svg>
         {/if}
         {#if island.timerEnd}
           <b class="orange">{fmt(island.timerLeft)}</b>
+        {:else if island.downloads.length}
+          <span class="dltext" title={island.downloads.map((d) => d.name).join(", ")}>
+            {island.downloads.length > 1 ? `${island.downloads.length} files · ` : ""}{fmtBytes(dlSize)}{dlSpeed > 0 ? ` · ${fmtBytes(dlSpeed)}/s` : ""}
+          </span>
         {:else if island.micApp && !island.media}
           <span class="dot" title="{island.micApp} is using the microphone"></span>
         {:else}
-          <div class="eq" class:on={island.media?.playing}><i></i><i></i><i></i><i></i></div>
+          <Eq on={island.media?.playing} />
         {/if}
       </div>
     {/if}
+    </div>
   </div>
 </div>
 
@@ -219,7 +262,8 @@
   .pill::before { left: calc(var(--flare) * -1); background: radial-gradient(circle at 0 100%, transparent var(--flare), #000 calc(var(--flare) + 0.5px)); }
   .pill::after { right: calc(var(--flare) * -1); background: radial-gradient(circle at 100% 100%, transparent var(--flare), #000 calc(var(--flare) + 0.5px)); }
 
-  .layer { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; transform-origin: top center; }
+  .clip { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
+  .layer { position: absolute; top: 0; left: 50%; box-sizing: border-box; transform-origin: top center; }
 
   .row { display: flex; align-items: center; gap: 12px; padding: 0 18px; font-size: 13px; }
   .row.split { justify-content: space-between; }
@@ -266,20 +310,21 @@
   .ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .dim-text { color: #8e8e93; font-size: 12px; white-space: nowrap; }
   .ico.blue { color: #0a84ff; }
+  .ico.ring { animation: ring 0.9s ease-in-out infinite; }
+  @keyframes ring { 0%, 50%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(-14deg); } 20%, 40% { transform: rotate(14deg); } }
+  .ico.dl { color: #0a84ff; animation: nudge 1s ease-in-out infinite; }
+  @keyframes nudge { 50% { transform: translateY(2px); } }
+  .dltext { font-size: 12px; font-variant-numeric: tabular-nums; color: #d1d1d6; white-space: nowrap; }
+  .seek.live { cursor: default; }
+  .seek.live .track i { background: #ff375f; }
+  .livetag { display: inline-flex; align-items: center; gap: 5px; color: #ff375f; font-weight: 600; letter-spacing: 0.5px; }
+  .livetag b { width: 6px; height: 6px; border-radius: 50%; background: #ff375f; animation: pulse 1.6s ease-in-out infinite; }
   .batt { font-variant-numeric: tabular-nums; color: #30d158; }
   .batt.low { color: #ff453a; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #ff9f0a; box-shadow: 0 0 8px #ff9f0a; flex: none; animation: pulse 1.6s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: 0.45; } }
   .appicon { width: 40px; height: 40px; border-radius: 9px; object-fit: contain; flex: none; margin-left: 4px; }
   .notif.has-icon { padding-left: 4px; }
-
-  .eq { display: flex; align-items: flex-end; gap: 2.5px; height: 16px; }
-  .eq i { width: 3px; height: 4px; border-radius: 2px; background: #ff375f; }
-  .eq.on i { animation: bounce 0.9s ease-in-out infinite; }
-  .eq i:nth-child(2) { animation-delay: -0.3s; }
-  .eq i:nth-child(3) { animation-delay: -0.6s; }
-  .eq i:nth-child(4) { animation-delay: -0.15s; }
-  @keyframes bounce { 0%, 100% { height: 4px; } 50% { height: 16px; } }
 
   .clock { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
   .big-time { font-size: 34px; font-weight: 600; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }

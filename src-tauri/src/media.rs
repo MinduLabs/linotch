@@ -11,9 +11,13 @@ const PREFIX: &str = "org.mpris.MediaPlayer2.";
 static CURRENT: Mutex<Option<String>> = Mutex::new(None);
 
 #[derive(Serialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
 struct Media {
     title: String,
     artist: String,
+    /// Cover art as a data URI, often 100+ KB. Sent on its own "media-art" event only when it changes:
+    /// shipping it with every 500 ms position update stalled the webview.
+    #[serde(skip)]
     art: Option<String>,
     playing: bool,
     /// microseconds
@@ -53,6 +57,8 @@ fn snapshot(conn: &Connection, art_cache: &mut HashMap<String, Option<String>>) 
             .get("mpris:length")
             .and_then(|v| v.downcast_ref::<i64>().ok().or_else(|| v.downcast_ref::<u64>().ok().map(|x| x as i64)))
             .unwrap_or(0);
+        // Live streams report no length, 0, or a sentinel like i64::MAX. Normalise all of those to 0 = unknown.
+        let length = if length <= 0 || length > 7 * 24 * 3600 * 1_000_000 { 0 } else { length };
         let art = md
             .get("mpris:artUrl")
             .and_then(|v| v.downcast_ref::<&str>().ok())
@@ -88,8 +94,14 @@ pub fn spawn(app: AppHandle) {
         let Ok(conn) = Connection::session() else { return };
         let mut cache = HashMap::new();
         let mut last: Option<Media> = None;
+        let mut last_art: Option<String> = None;
         loop {
             let now = snapshot(&conn, &mut cache).unwrap_or(None);
+            let art = now.as_ref().and_then(|m| m.art.clone());
+            if art != last_art {
+                let _ = app.emit("media-art", &art);
+                last_art = art;
+            }
             if now != last {
                 let _ = app.emit("media", &now);
                 last = now;

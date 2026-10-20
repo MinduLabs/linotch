@@ -12,11 +12,32 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     // A DOCK-typed window isn't clamped below the GNOME top bar, so the pill can sit at y=0.
     #[cfg(target_os = "linux")]
     if let Ok(gw) = w.gtk_window() {
-        use gtk::prelude::{GtkWindowExt, WidgetExt};
+        use gtk::prelude::{GtkWindowExt, WidgetExt, WidgetExtManual};
         gw.hide();
         gw.set_type_hint(gtk::gdk::WindowTypeHint::Dock);
         gw.set_keep_above(true);
         gw.show_all();
+
+        // WebKit regularly misses the pointer leaving through the edge of the input region: the DOM never gets
+        // mouseleave and the island stays open until the pointer comes back. GTK's own crossing events on the
+        // toplevel are reliable, so forward them. (Inferior = moving into a child window of ours, not a real exit.)
+        use gtk::gdk::{EventMask, NotifyType};
+        use tauri::Emitter;
+        gw.add_events(EventMask::ENTER_NOTIFY_MASK | EventMask::LEAVE_NOTIFY_MASK);
+        let a = app.clone();
+        gw.connect_leave_notify_event(move |_, ev| {
+            if ev.detail() != NotifyType::Inferior {
+                let _ = a.emit("pointer-left", ());
+            }
+            gtk::glib::Propagation::Proceed
+        });
+        let a = app.clone();
+        gw.connect_enter_notify_event(move |_, ev| {
+            if ev.detail() != NotifyType::Inferior {
+                let _ = a.emit("pointer-entered", ev.position());
+            }
+            gtk::glib::Propagation::Proceed
+        });
     }
     w.set_size(tauri::LogicalSize::new(WIDTH, HEIGHT))?;
     if let Some(m) = w.primary_monitor()? {

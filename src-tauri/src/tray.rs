@@ -21,7 +21,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
 
     let (autostart_i, notch_i) = (autostart.clone(), notch.clone());
     TrayIconBuilder::with_id("linotch")
-        .icon(app.default_window_icon().cloned().expect("window icon"))
+        .icon(tauri::include_image!("icons/tray.png"))
         .tooltip("Linotch")
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {

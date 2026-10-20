@@ -1,7 +1,8 @@
+use crate::host;
 use serde::Serialize;
 use std::{
     io::{BufRead, BufReader},
-    process::{Command, Stdio},
+    process::Stdio,
     thread,
 };
 use tauri::{AppHandle, Emitter};
@@ -13,7 +14,7 @@ struct Volume {
 }
 
 fn pactl(args: &[&str]) -> String {
-    Command::new("pactl")
+    host::command("pactl")
         .args(args)
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
@@ -29,7 +30,7 @@ fn read() -> Option<Volume> {
 
 pub fn spawn(app: AppHandle) {
     thread::spawn(move || {
-        let Ok(mut child) = Command::new("pactl").arg("subscribe").stdout(Stdio::piped()).spawn() else {
+        let Ok(mut child) = host::command("pactl").arg("subscribe").stdout(Stdio::piped()).spawn() else {
             return;
         };
         let Some(out) = child.stdout.take() else { return };
