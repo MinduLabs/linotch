@@ -3,14 +3,28 @@
   import { onMount } from "svelte";
   import { scale } from "svelte/transition";
   import Eq from "$lib/Eq.svelte";
+  import Cover from "$lib/Cover.svelte";
   import { cubicOut } from "svelte/easing";
   import { island, setHitRect, fmt, fmtBytes } from "$lib/island.svelte";
   import { Spring, OPEN, CLOSE } from "$lib/spring";
 
 
-  const IN = { start: 0.8, duration: 340, delay: 90, easing: cubicOut };
-  const OUT = { start: 0.9, duration: 130, easing: cubicOut };
+  const IN = { start: 0.9, duration: 320, delay: 60, easing: cubicOut };
+  const OUT = { start: 0.94, duration: 120, easing: cubicOut };
+
+  // The morph runs on the compositor only: every frame changes nothing but transforms (no layout, no paint).
+  // The black shape is put together from pieces, the content sits in a clip box scaled to the shape plus an
+  // inner box scaled back by the inverse, so text stays 1:1 and never reflows while the pill moves.
+  const BODY_W = 400; // base sizes; shapes only ever scale down from these, so edges stay sharp
+  const BODY_H = 200;
+  const SIDE_W = 48;
+  const CORNER = 48; // corner boxes are fixed; only their gradient radius changes (a tiny repaint)
+  const FLARE = 10;
+  const OVERLAP = 0.5; // pieces overlap by half a pixel so no seam shows between them
   let pillEl: HTMLElement;
+  let unclipEl: HTMLElement;
+  let bodyEl: HTMLElement, sideL: HTMLElement, sideR: HTMLElement;
+  let cornerL: HTMLElement, cornerR: HTMLElement, flareL: HTMLElement, flareR: HTMLElement;
   const sw = new Spring(island.size.w);
   const sh = new Spring(island.size.h);
   const sr = new Spring(island.size.r);
@@ -19,11 +33,26 @@
   let cfg = OPEN;
   let token = 0;
 
+  const place = (el: HTMLElement, x: number, y: number, sx = 1, sy = 1) =>
+    (el.style.transform = `translate(${x}px, ${y}px) scale(${sx}, ${sy})`);
+
   const apply = () => {
-    pillEl.style.width = `${sw.x}px`;
-    pillEl.style.height = `${Math.max(0, sh.x)}px`;
-    const r = Math.max(0, sr.x);
-    pillEl.style.borderRadius = `0 0 ${r}px ${r}px`;
+    const W = Math.max(1, sw.x);
+    const H = Math.max(1, sh.x);
+    const R = Math.max(0, Math.min(sr.x, H, W / 2, CORNER));
+    const half = W / 2;
+    place(bodyEl, -half + R - OVERLAP, 0, (W - 2 * R + 2 * OVERLAP) / BODY_W, H / BODY_H);
+    const sideSy = Math.max(0, H - R + OVERLAP) / BODY_H;
+    place(sideL, -half, 0, (R + OVERLAP) / SIDE_W, sideSy);
+    place(sideR, half - R - OVERLAP, 0, (R + OVERLAP) / SIDE_W, sideSy);
+    place(cornerL, -half, H - R);
+    place(cornerR, half - CORNER, H - R);
+    cornerL.style.setProperty("--r", `${R}px`);
+    cornerR.style.setProperty("--r", `${R}px`);
+    place(flareL, -half - FLARE, 0);
+    place(flareR, half, 0);
+    pillEl.style.transform = `scale(${W / BODY_W}, ${H / BODY_H})`;
+    unclipEl.style.transform = `scale(${BODY_W / W}, ${BODY_H / H})`;
   };
 
   function tick(t: number) {
@@ -90,6 +119,15 @@
 </script>
 
 <div class="stage">
+  <div class="shape" aria-hidden="true">
+    <i class="solid body" bind:this={bodyEl}></i>
+    <i class="solid side" bind:this={sideL}></i>
+    <i class="solid side" bind:this={sideR}></i>
+    <i class="corner l" bind:this={cornerL}></i>
+    <i class="corner r" bind:this={cornerR}></i>
+    <i class="flare l" bind:this={flareL}></i>
+    <i class="flare r" bind:this={flareR}></i>
+  </div>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="pill"
@@ -103,7 +141,7 @@
     onmouseleave={() => island.leave()}
     onclick={() => island.alert && island.openAlert()}
   >
-    <div class="clip">
+    <div class="unclip" bind:this={unclipEl}>
     <!-- ALERT -->
     {#if island.mode === "alert" && island.alert}
       {@const a = island.alert}
@@ -164,7 +202,7 @@
         {@const m = island.media}
         <div class="layer expanded" use:fit={island.size} in:scale={IN} out:scale={OUT}>
           <div class="top">
-            {#if m.art}<img class="art" src={m.art} alt="" />{:else}<div class="art ph"></div>{/if}
+            <Cover src={m.art} />
             <div class="meta">
               <strong>{m.title}</strong>
               <span>{m.artist}</span>
@@ -220,7 +258,7 @@
         {#if island.downloads.length && !island.timerEnd}
           <svg class="ico dl" viewBox="0 0 24 24"><path d="M12 3v11m0 0-4.5-4.5M12 14l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
         {:else if island.media}
-          {#if island.media.art}<img class="art sm" src={island.media.art} alt="" />{:else}<div class="art sm ph"></div>{/if}
+          <Cover src={island.media.art} small />
         {:else}
           <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2" /><path d="M12 9v4l3 2" stroke="currentColor" stroke-width="2" fill="none" /></svg>
         {/if}
@@ -242,28 +280,35 @@
 </div>
 
 <style>
-  .stage { position: fixed; inset: 0 0 auto 0; display: flex; justify-content: center; }
-  .pill {
-    --flare: 10px;
-    position: relative;
-    background: #000;
-    overflow: visible;
-    cursor: pointer;
-  }
+  .stage { position: fixed; top: 0; left: 50%; width: 0; height: 0; }
+  .shape > i { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+  /* Plain colour boxes: WebKit composites them as solid-colour layers, nothing to rasterise. */
+  .solid { background: #000; }
+  .body { width: 400px; height: 200px; }
+  .side { width: 48px; height: 200px; }
+  /* Bottom corners: a quarter circle of radius --r, drawn in a fixed 48px box. */
+  .corner { --r: 10px; width: 48px; height: 48px; }
+  .corner.l { background: radial-gradient(circle at var(--r) 0, #000 calc(var(--r) - 0.25px), transparent calc(var(--r) + 0.5px)); }
+  .corner.r { background: radial-gradient(circle at calc(48px - var(--r)) 0, #000 calc(var(--r) - 0.25px), transparent calc(var(--r) + 0.5px)); }
   /* Inverted top corners so the pill melts into the screen edge like the real notch. */
-  .pill::before,
-  .pill::after {
-    content: "";
+  .flare { width: 10px; height: 10px; }
+  .flare.l { background: radial-gradient(circle at 0 100%, transparent 10px, #000 10.5px); }
+  .flare.r { background: radial-gradient(circle at 100% 100%, transparent 10px, #000 10.5px); }
+
+  /* Clip box: scaled to the current shape size. Hit-testing follows the transform, so hover matches the shape. */
+  .pill {
     position: absolute;
     top: 0;
-    width: var(--flare);
-    height: var(--flare);
+    left: -200px;
+    width: 400px;
+    height: 200px;
+    transform-origin: 50% 0;
+    overflow: hidden;
+    cursor: pointer;
+    will-change: transform;
   }
-  .pill::before { left: calc(var(--flare) * -1); background: radial-gradient(circle at 0 100%, transparent var(--flare), #000 calc(var(--flare) + 0.5px)); }
-  .pill::after { right: calc(var(--flare) * -1); background: radial-gradient(circle at 100% 100%, transparent var(--flare), #000 calc(var(--flare) + 0.5px)); }
-
-  .clip { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
-  .layer { position: absolute; top: 0; left: 50%; box-sizing: border-box; transform-origin: top center; }
+  .unclip { position: absolute; inset: 0; transform-origin: 50% 0; will-change: transform; }
+  .layer { position: absolute; top: 0; left: 50%; box-sizing: border-box; transform-origin: top center; will-change: transform, opacity; }
 
   .row { display: flex; align-items: center; gap: 12px; padding: 0 18px; font-size: 13px; }
   .row.split { justify-content: space-between; }
@@ -273,9 +318,6 @@
   .ico.green { color: #30d158; }
   .orange { color: #ff9f0a; font-variant-numeric: tabular-nums; }
 
-  .art { width: 52px; height: 52px; border-radius: 12px; object-fit: cover; flex: none; background: #222; }
-  .art.sm { width: 19px; height: 19px; border-radius: 5px; }
-  .art.ph { background: linear-gradient(135deg, #444, #1c1c1e); }
 
   .bar { height: 6px; border-radius: 3px; background: #3a3a3c; overflow: hidden; }
   .bar i { display: block; height: 100%; background: #fff; border-radius: 3px; transition: width 0.15s; }

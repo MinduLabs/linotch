@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-export type Media = { title: string; artist: string; art: string | null; playing: boolean; position: number; length: number; canPrev: boolean; canNext: boolean };
+export type Media = { title: string; artist: string; art: string | null; artKey: string; playing: boolean; position: number; length: number; canPrev: boolean; canNext: boolean };
 export type Alert =
   | { kind: "power"; percent: number; charging: boolean }
   | { kind: "volume"; percent: number; muted: boolean }
@@ -43,7 +43,7 @@ class Island {
   downloads = $state<Download[]>([]);
 
   #mediaGone: ReturnType<typeof setTimeout> | undefined;
-  #art: string | null = null;
+  #art: { key: string; data: string | null } | null = null;
   #alertTimeout: ReturnType<typeof setTimeout> | undefined;
   #leaveTimeout: ReturnType<typeof setTimeout> | undefined;
   #lastPower: { plugged: boolean } | null = null;
@@ -69,6 +69,10 @@ class Island {
   );
 
   timerLeft = $derived(this.timerEnd ? Math.max(0, Math.ceil((this.timerEnd - this.now) / 1000)) : 0);
+
+  #coverFor(key: string) {
+    return this.#art && this.#art.key === key ? this.#art.data : null;
+  }
 
   toggleMute() {
     this.muted = !this.muted;
@@ -101,13 +105,14 @@ class Island {
     // Changing track briefly reports no metadata. Hold the last track for a moment so the
     // island doesn't flip to the clock (and resize) in between.
     // Cover art comes on its own event, only when it changes (it is large); merge it in here.
-    await listen<string | null>("media-art", (e) => {
+    // A cover only counts for the track it was sent for; otherwise the UI shows its default cover.
+    await listen<{ key: string; data: string | null }>("media-art", (e) => {
       this.#art = e.payload;
-      if (this.media) this.media = { ...this.media, art: this.#art };
+      if (this.media) this.media = { ...this.media, art: this.#coverFor(this.media.artKey) };
     });
     await listen<Media | null>("media", (e) => {
       clearTimeout(this.#mediaGone);
-      if (e.payload) this.media = { ...e.payload, art: this.#art };
+      if (e.payload) this.media = { ...e.payload, art: this.#coverFor(e.payload.artKey) };
       else this.#mediaGone = setTimeout(() => (this.media = null), 2500);
     });
     await listen<{ percent: number; charging: boolean; plugged: boolean } | null>("power", (e) => {

@@ -21,6 +21,17 @@ pub fn run() {
         // SAFETY: called before any other thread exists.
         unsafe { std::env::set_var("GDK_BACKEND", "x11") };
     }
+    // Measured on the idle island (PSS of app + WebKit processes): 197 MB -> 174 MB.
+    // - DMA-BUF renderer off: WebKit keeps GPU compositing but shares frames through shared memory (-20 MB).
+    // - JavaScriptCore's optimizing JIT tiers off: the page runs a few lines per frame, the baseline JIT is plenty.
+    //   (Turning the JIT off entirely saves another ~5 MB but makes per-frame JS slower; not worth it.)
+    #[cfg(target_os = "linux")]
+    for (key, value) in [("WEBKIT_DISABLE_DMABUF_RENDERER", "1"), ("JSC_useDFGJIT", "false"), ("JSC_useFTLJIT", "false")] {
+        if std::env::var_os(key).is_none() {
+            // SAFETY: still before any other thread exists.
+            unsafe { std::env::set_var(key, value) };
+        }
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))

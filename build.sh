@@ -31,10 +31,22 @@ docker run --rm \
               --exclude build --exclude dist --exclude .git /src/ /work/
         pnpm install --frozen-lockfile
         pnpm tauri build --bundles "$BUNDLES"
+        B=src-tauri/target/release/bundle
         for b in ${BUNDLES//,/ }; do
             rm -rf "/out/$b"
-            cp -r "src-tauri/target/release/bundle/$b" /out/
+            mkdir -p "/out/$b"
         done
+        if [[ $BUNDLES == *appimage* ]]; then
+            # Tauri packs with zstd at default level and 128K blocks. The AppImage runtime only reads gzip/zstd,
+            # so repack the same AppDir with zstd -22 and 1M blocks: 77 MB -> 70 MB. AppImage = runtime + squashfs.
+            img=$(ls $B/appimage/*.AppImage)
+            offset=$("$img" --appimage-offset)
+            head -c "$offset" "$img" > /tmp/runtime
+            mksquashfs $B/appimage/*.AppDir /tmp/fs.sqfs -comp zstd -Xcompression-level 22 -b 1M -root-owned -noappend -quiet
+            cat /tmp/runtime /tmp/fs.sqfs > "/out/appimage/$(basename "$img")"
+            chmod +x /out/appimage/*.AppImage
+        fi
+        [[ $BUNDLES == *deb* ]] && cp $B/deb/*.deb /out/deb/
         chown -R "$HOST_UID:$HOST_GID" /out
     '
 

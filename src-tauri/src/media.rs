@@ -19,6 +19,9 @@ struct Media {
     /// shipping it with every 500 ms position update stalled the webview.
     #[serde(skip)]
     art: Option<String>,
+    /// Which cover belongs to this track (the player's artUrl, "" for none). Lets the UI show its default
+    /// cover instead of the previous track's while the new one is on its way.
+    art_key: String,
     playing: bool,
     /// microseconds
     position: i64,
@@ -27,12 +30,26 @@ struct Media {
     can_next: bool,
 }
 
+#[derive(Serialize)]
+struct ArtMsg {
+    key: String,
+    data: Option<String>,
+}
+
 fn art_to_data_uri(url: &str) -> Option<String> {
     let Some(path) = url.strip_prefix("file://") else {
         return Some(url.to_string());
     };
     let bytes = std::fs::read(path).ok()?;
-    let mime = if path.ends_with(".png") { "image/png" } else { "image/jpeg" };
+    let png = bytes.starts_with(b"\x89PNG\r\n\x1a\n");
+    // Chromium-based browsers (Brave, Chrome) fill the gap while switching tracks with their own app icon
+    // (seen: a 256x256 RGBA PNG, with an empty title). Real artwork arrives as an opaque PNG, so an image with
+    // an alpha channel from Chromium's temp files is the browser logo: treat it as no art.
+    // PNG colour type sits at byte 25 of the IHDR chunk; 4 and 6 are the types with alpha.
+    if png && path.contains(".org.chromium.Chromium.") && matches!(bytes.get(25), Some(4 | 6)) {
+        return None;
+    }
+    let mime = if png { "image/png" } else { "image/jpeg" };
     Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
 
@@ -59,16 +76,23 @@ fn snapshot(conn: &Connection, art_cache: &mut HashMap<String, Option<String>>) 
             .unwrap_or(0);
         // Live streams report no length, 0, or a sentinel like i64::MAX. Normalise all of those to 0 = unknown.
         let length = if length <= 0 || length > 7 * 24 * 3600 * 1_000_000 { 0 } else { length };
-        let art = md
-            .get("mpris:artUrl")
-            .and_then(|v| v.downcast_ref::<&str>().ok())
-            .and_then(|u| art_cache.entry(u.to_string()).or_insert_with(|| art_to_data_uri(u)).clone());
+        let art_url = md.get("mpris:artUrl").and_then(|v| v.downcast_ref::<&str>().ok());
+        let art_key = art_url.unwrap_or("").to_string();
+        let art = art_url
+            .and_then(|u| {
+                // Browsers hand out a new temp file per track, so the cache would grow forever: keep a few.
+                if !art_cache.contains_key(u) && art_cache.len() >= 8 {
+                    art_cache.clear();
+                }
+                art_cache.entry(u.to_string()).or_insert_with(|| art_to_data_uri(u)).clone()
+            });
 
         let playing = status == "Playing";
         let m = Media {
             title,
             artist,
             art,
+            art_key,
             playing,
             position: p.get_property("Position").unwrap_or(0),
             length,
@@ -94,13 +118,15 @@ pub fn spawn(app: AppHandle) {
         let Ok(conn) = Connection::session() else { return };
         let mut cache = HashMap::new();
         let mut last: Option<Media> = None;
-        let mut last_art: Option<String> = None;
+        let mut last_key: Option<String> = None;
         loop {
             let now = snapshot(&conn, &mut cache).unwrap_or(None);
-            let art = now.as_ref().and_then(|m| m.art.clone());
-            if art != last_art {
-                let _ = app.emit("media-art", &art);
-                last_art = art;
+            let key = now.as_ref().map(|m| m.art_key.clone());
+            if key != last_key {
+                if let Some(m) = &now {
+                    let _ = app.emit("media-art", &ArtMsg { key: m.art_key.clone(), data: m.art.clone() });
+                }
+                last_key = key;
             }
             if now != last {
                 let _ = app.emit("media", &now);

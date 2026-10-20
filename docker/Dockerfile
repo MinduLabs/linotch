@@ -19,6 +19,9 @@ RUN corepack prepare pnpm@${PNPM_VERSION} --activate
 ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
 RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
 
+# mksquashfs, to repack the AppImage with stronger compression (see build.sh). Own layer so the ones above stay cached.
+RUN apt-get update && apt-get install -y --no-install-recommends squashfs-tools && rm -rf /var/lib/apt/lists/*
+
 # linuxdeploy (used for the AppImage) is itself an AppImage; containers have no FUSE.
 ENV APPIMAGE_EXTRACT_AND_RUN=1 CI=true
 WORKDIR /work

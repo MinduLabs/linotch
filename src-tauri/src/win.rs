@@ -39,6 +39,8 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             gtk::glib::Propagation::Proceed
         });
     }
+    #[cfg(target_os = "linux")]
+    let _ = w.with_webview(|wv| tune_webkit(&wv.inner()));
     w.set_size(tauri::LogicalSize::new(WIDTH, HEIGHT))?;
     if let Some(m) = w.primary_monitor()? {
         let sf = m.scale_factor();
@@ -48,6 +50,22 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     w.set_always_on_top(true)?;
     w.set_skip_taskbar(true)?;
     Ok(())
+}
+
+/// WebKit defaults to a full web browser profile. The island is one small local page, so drop the browser
+/// caches (WebKitGTK docs: DOCUMENT_VIEWER "can substantially reduce memory use" for apps without browsing)
+/// and features it never uses.
+#[cfg(target_os = "linux")]
+fn tune_webkit(view: &webkit2gtk::WebView) {
+    use webkit2gtk::{CacheModel, SettingsExt, WebContextExt, WebViewExt};
+    if let Some(ctx) = view.context() {
+        ctx.set_cache_model(CacheModel::DocumentViewer);
+    }
+    if let Some(s) = WebViewExt::settings(view) {
+        s.set_enable_page_cache(false); // back/forward cache: there is no navigation
+        s.set_enable_webgl(false);
+        s.set_enable_developer_extras(cfg!(debug_assertions));
+    }
 }
 
 /// Limits the input region to the pill (`w` x `h`, logical px, centred on the top edge) so the
