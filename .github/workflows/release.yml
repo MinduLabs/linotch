@@ -1,0 +1,42 @@
+# Push a tag like v0.2.0 (matching "version" in src-tauri/tauri.conf.json) to publish a GitHub release
+# with the AppImage and the .deb attached.
+#
+# Builds with ./build.sh, the same Docker image (Ubuntu 22.04) and AppImage repack as a local build, so the
+# released files are the ones you tested. Tauri's docs recommend building Linux apps in Docker or CI on the
+# oldest distro you support: https://v2.tauri.app/distribute/appimage/
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the release and upload its files
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04 # only hosts Docker; the build itself runs in the ubuntu:22.04 image
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag matches the app version
+        run: |
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $version in src-tauri/tauri.conf.json"
+            exit 1
+          fi
+
+      - name: Build AppImage and .deb
+        run: ./build.sh
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=(dist/appimage/*.AppImage dist/deb/*.deb)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber   # re-run of the same tag
+          else
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --title "Linotch $GITHUB_REF_NAME" --generate-notes
+          fi

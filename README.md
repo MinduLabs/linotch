@@ -40,6 +40,16 @@ Build the AppImage or the `.deb` inside Docker (nothing but Docker needed on the
 
 Files end up in `dist/`.
 
+## Release
+
+Bump `version` in `src-tauri/tauri.conf.json`, commit, then push a matching tag. GitHub Actions builds the
+AppImage and `.deb` with `./build.sh` and publishes them as a GitHub release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## Status
 
 Early work in progress. Known gaps: multiple monitors, camera detection.
