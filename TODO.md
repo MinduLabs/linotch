@@ -7,8 +7,10 @@ Target platform: Ubuntu 24.04+ / GNOME 45+ (and newer). Ubuntu 22.04 (GNOME 42) 
 
 ## 1. Tabs in the expanded view
 
-Hovering the island opens it on the **Home** tab; a row of icons at the bottom switches tabs. Every tab uses the
-same pill size (about 371 x 190), so switching tabs never morphs the pill. The do-not-disturb bell sits in the same row.
+Hovering the island opens it on the **Home** tab. Decided: navigation like Nusa, with `‹ ›` arrows on the sides and
+page dots at the bottom, plus a shared header on every page (page title with one accent-coloured word, battery ring,
+date and time, wave) and an accent colour per page. Every tab uses the same pill size (about 371 x 190), so switching
+tabs never morphs the pill.
 
 | Tab | Content |
 |---|---|
@@ -25,7 +27,9 @@ Notes from a first attempt:
 - Battery and Bluetooth state must be readable on demand (commands), not only through change events: the UI can
   miss events that fire before it starts listening.
 
-## 2. Resting state (not decided yet)
+## 2. Resting state
+
+Decided: when nothing is happening, a plain black notch (no eyes, no clock).
 
 What the closed island shows when nothing is happening. A plain clock plus battery is **not** wanted by default.
 
@@ -36,7 +40,7 @@ Proposed priority for what the closed pill shows:
 3. Running timer (countdown)
 4. Music playing (cover and wave)
 5. To-do due soon
-6. Nothing: a plain black notch, or Nusa-style "eyes" that doze off and wave when the pointer comes back (to decide)
+6. Nothing: a plain black notch
 
 ## 3. Alerts (already there, keep)
 

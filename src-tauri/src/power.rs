@@ -1,12 +1,20 @@
 use serde::Serialize;
-use std::{fs, thread, time::Duration};
+use std::{fs, sync::Mutex, thread, time::Duration};
 use tauri::{AppHandle, Emitter};
 
 #[derive(Serialize, Clone, PartialEq)]
-struct Power {
+pub struct Power {
     percent: u8,
     charging: bool,
     plugged: bool,
+}
+
+/// Last reading, for the UI to ask for when it opens (events only fire on change).
+static LAST: Mutex<Option<Power>> = Mutex::new(None);
+
+#[tauri::command]
+pub fn power_now() -> Option<Power> {
+    LAST.lock().unwrap().clone().or_else(read)
 }
 
 fn read() -> Option<Power> {
@@ -37,6 +45,7 @@ pub fn spawn(app: AppHandle) {
             let now = read();
             if now != last {
                 let _ = app.emit("power", &now);
+                *LAST.lock().unwrap() = now.clone();
                 last = now;
             }
             thread::sleep(Duration::from_secs(1));

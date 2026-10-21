@@ -1,6 +1,5 @@
 mod alarm;
 mod bt;
-mod downloads;
 mod host;
 mod icons;
 mod media;
@@ -8,6 +7,7 @@ mod mic;
 mod notif;
 mod power;
 mod settings;
+mod todos;
 mod tray;
 mod volume;
 mod win;
@@ -56,7 +56,6 @@ pub fn run() {
             volume::spawn(handle.clone());
             bt::spawn(handle.clone());
             mic::spawn(handle.clone());
-            downloads::spawn(handle.clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -64,7 +63,11 @@ pub fn run() {
             media::media_cmd,
             media::media_seek,
             notif::open_app,
-            alarm::alarm
+            alarm::alarm,
+            power::power_now,
+            bt::bt_devices,
+            todos::todos_load,
+            todos::todos_save
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

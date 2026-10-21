@@ -6,26 +6,32 @@ export type Alert =
   | { kind: "power"; percent: number; charging: boolean }
   | { kind: "volume"; percent: number; muted: boolean }
   | { kind: "notif"; app: string; summary: string; body: string; desktopEntry: string | null; icon: string | null }
-  | { kind: "bluetooth"; name: string; icon: string; connected: boolean; battery: number | null }
+  | { kind: "bluetooth"; device: BtDevice; connected: boolean }
   | { kind: "mic"; app: string }
-  | { kind: "download"; name: string }
+  | { kind: "todo"; text: string }
   | { kind: "timer" };
 
-export type Download = { name: string; size: number; speed: number };
+export type Power = { percent: number; charging: boolean; plugged: boolean };
+/** `model` is set for Apple headphones, which get their own drawing. */
+export type BtDevice = { name: string; icon: string; model: "airpods" | "airpods-pro" | "airpods-max" | null; battery: number | null };
+export type Todo = { id: number; text: string; done: boolean; due: number | null; reminded: boolean };
+
+/** Pages of the open island, in order. The pill keeps one size for all of them. */
+export const PAGES = ["home", "devices", "timer", "todo"] as const;
+export type Page = (typeof PAGES)[number];
 
 export type Mode = "idle" | "compact" | "expanded" | "alert";
 export type Size = { w: number; h: number; r: number };
 
-// Logical px. The OS window is a fixed 460x230; only the pill moves.
-export const WINDOW_W = 460;
+// Logical px. The OS window is a fixed 420x220 (win.rs); only the pill moves inside it.
 const SIZES = {
   idle: { w: 190, h: 27, r: 10 }, // MacBook notch
   compact: { w: 250, h: 27, r: 13 },
-  alertSmall: { w: 300, h: 36, r: 18 },
-  alertBt: { w: 340, h: 40, r: 20 },
+  hud: { w: 300, h: 36, r: 18 }, // volume
+  alert: { w: 340, h: 56, r: 28 }, // two-line alerts
   alertNotif: { w: 371, h: 84, r: 32 },
-  expandedMedia: { w: 371, h: 160, r: 40 },
-  expandedIdle: { w: 371, h: 118, r: 36 },
+  btCard: { w: 371, h: 120, r: 40 },
+  expanded: { w: 371, h: 190, r: 40 },
 } satisfies Record<string, Size>;
 
 class Island {
@@ -39,8 +45,11 @@ class Island {
   muted = $state(false);
   /** App currently recording from the microphone (a call, Meet, Zoom...). */
   micApp = $state<string | null>(null);
-  /** Partial files currently growing in the download folder. */
-  downloads = $state<Download[]>([]);
+  /** Which page the open island shows; back to home every time it closes. */
+  page = $state<Page>("home");
+  power = $state<Power | null>(null);
+  btDevices = $state<BtDevice[]>([]);
+  todos = $state<Todo[]>([]);
 
   #mediaGone: ReturnType<typeof setTimeout> | undefined;
   #art: { key: string; data: string | null } | null = null;
@@ -49,20 +58,20 @@ class Island {
   #lastPower: { plugged: boolean } | null = null;
 
   mode = $derived<Mode>(
-    this.alert ? "alert" : this.hovering ? "expanded" : this.media || this.timerEnd || this.micApp || this.downloads.length ? "compact" : "idle",
+    this.alert ? "alert" : this.hovering ? "expanded" : this.media || this.timerEnd || this.micApp ? "compact" : "idle",
   );
 
   size = $derived<Size>(
     this.mode === "alert"
-      ? this.alert?.kind === "notif" || this.alert?.kind === "timer"
+      ? this.alert?.kind === "notif"
         ? SIZES.alertNotif
         : this.alert?.kind === "bluetooth"
-          ? SIZES.alertBt
-          : SIZES.alertSmall
+          ? SIZES.btCard
+          : this.alert?.kind === "volume"
+            ? SIZES.hud
+            : SIZES.alert
       : this.mode === "expanded"
-        ? this.media
-          ? SIZES.expandedMedia
-          : SIZES.expandedIdle
+        ? SIZES.expanded
         : this.mode === "compact"
           ? SIZES.compact
           : SIZES.idle,
@@ -86,7 +95,7 @@ class Island {
     const a = this.alert;
     if (a?.kind === "notif") invoke("open_app", { desktopEntry: a.desktopEntry, app: a.app }).catch(() => {});
     this.#suppressHover = true;
-    this.hovering = false;
+    this.#close();
     this.dismissAlert();
   }
 
@@ -100,7 +109,24 @@ class Island {
         this.timerEnd = null;
         this.ringAlarm();
       }
+      const due = this.todos.find((t) => !t.done && !t.reminded && t.due !== null && t.due <= this.now);
+      if (due) {
+        this.#updateTodo(due.id, { reminded: true });
+        this.pushAlert({ kind: "todo", text: due.text }, 6000);
+      }
     }, 250);
+
+    // Current state up front: change events alone leave the Devices page empty until something changes.
+    invoke<Power | null>("power_now").then((p) => (this.power = p), () => {});
+    invoke<BtDevice[]>("bt_devices").then((d) => (this.btDevices = d), () => {});
+    invoke<string>("todos_load").then(
+      (json) => {
+        try {
+          this.todos = JSON.parse(json);
+        } catch {}
+      },
+      () => {},
+    );
 
     // Changing track briefly reports no metadata. Hold the last track for a moment so the
     // island doesn't flip to the clock (and resize) in between.
@@ -121,6 +147,7 @@ class Island {
         this.pushAlert({ kind: "power", percent: p.percent, charging: p.plugged }, 3000);
       }
       this.#lastPower = p;
+      this.power = p;
     });
     await listen<{ app: string } | null>("mic", (e) => {
       const started = e.payload && !this.micApp;
@@ -134,17 +161,16 @@ class Island {
       this.pointerAt(x, y);
       if (document.elementFromPoint(x, y)?.closest(".pill")) this.enter();
     });
-    await listen<Download[]>("downloads", (e) => (this.downloads = e.payload));
-    await listen<string>("download-done", (e) => this.pushAlert({ kind: "download", name: e.payload }, 3500));
-    await listen<{ kind: string; name: string; icon: string; battery: number | null }>("bluetooth", (e) => {
-      const { kind, name, icon, battery } = e.payload;
+    await listen<BtDevice & { kind: string }>("bluetooth", (e) => {
+      const { kind, ...device } = e.payload;
+      invoke<BtDevice[]>("bt_devices").then((d) => (this.btDevices = d), () => {});
       const cur = this.alert;
       if (kind === "battery") {
-        // Battery levels usually arrive just after the connect event: update the open alert in place.
-        if (cur?.kind === "bluetooth" && cur.name === name) this.alert = { ...cur, battery };
+        // Battery levels usually arrive just after the connect event: update the open card in place.
+        if (cur?.kind === "bluetooth" && cur.device.name === device.name) this.alert = { ...cur, device };
         return;
       }
-      this.pushAlert({ kind: "bluetooth", name, icon, connected: kind === "connected", battery }, 3500);
+      this.pushAlert({ kind: "bluetooth", device, connected: kind === "connected" }, 4500);
     });
     await listen<{ percent: number; muted: boolean }>("volume", (e) =>
       this.pushAlert({ kind: "volume", ...e.payload }, 1600),
@@ -196,8 +222,14 @@ class Island {
     if (Math.abs(x - cx) > half || y > Math.ceil(size.h)) {
       clearTimeout(this.#leaveTimeout);
       this.#suppressHover = false;
-      this.hovering = false;
+      this.#close();
     }
+  }
+
+  /** Closing always lands back on the home page next time. */
+  #close() {
+    this.hovering = false;
+    this.page = "home";
   }
 
   enter() {
@@ -207,7 +239,34 @@ class Island {
   leave() {
     clearTimeout(this.#leaveTimeout);
     this.#suppressHover = false;
-    this.#leaveTimeout = setTimeout(() => (this.hovering = false), 350);
+    this.#leaveTimeout = setTimeout(() => {
+      // Typing a to-do: the pointer drifting off the pill must not throw the text away.
+      if (document.activeElement?.closest(".pill input")) return;
+      this.#close();
+    }, 350);
+  }
+
+  // ---------- to-do ----------
+  #saveTodos() {
+    invoke("todos_save", { data: JSON.stringify(this.todos) }).catch(() => {});
+  }
+  #updateTodo(id: number, patch: Partial<Todo>) {
+    this.todos = this.todos.map((t) => (t.id === id ? { ...t, ...patch } : t));
+    this.#saveTodos();
+  }
+  addTodo(text: string, due: number | null) {
+    const t = text.trim();
+    if (!t) return;
+    this.todos = [...this.todos, { id: Date.now(), text: t, done: false, due, reminded: false }];
+    this.#saveTodos();
+  }
+  toggleTodo(id: number) {
+    const t = this.todos.find((x) => x.id === id);
+    if (t) this.#updateTodo(id, { done: !t.done });
+  }
+  removeTodo(id: number) {
+    this.todos = this.todos.filter((t) => t.id !== id);
+    this.#saveTodos();
   }
 
   startTimer(minutes: number) {
@@ -234,13 +293,3 @@ export function setHitRect(size: Size) {
 }
 
 export const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-
-export const fmtBytes = (n: number) => {
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let i = 0;
-  while (n >= 1000 && i < units.length - 1) {
-    n /= 1000;
-    i++;
-  }
-  return `${n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
-};
