@@ -13,13 +13,13 @@
 
 
   const IN = { start: 0.9, duration: 320, delay: 60, easing: cubicOut };
-  const OUT = { start: 0.94, duration: 120, easing: cubicOut };
+  const OUT = { start: 0.94, duration: 180, easing: cubicOut };
 
   // The morph runs on the compositor only: every frame changes nothing but transforms (no layout, no paint).
   // The black shape is put together from pieces, the content sits in a clip box scaled to the shape plus an
   // inner box scaled back by the inverse, so text stays 1:1 and never reflows while the pill moves.
-  const BODY_W = 400; // base sizes; shapes only ever scale down from these, so edges stay sharp
-  const BODY_H = 240; // tallest shape is 190 (expanded) plus spring overshoot
+  const BODY_W = 480; // base sizes; shapes only ever scale down from these, so edges stay sharp
+  const BODY_H = 240; // tallest shape is ~220 (a full to-do list) plus spring overshoot
   const SIDE_W = 48;
   const CORNER = 48; // corner boxes are fixed; only their gradient radius changes (a tiny repaint)
   const FLARE = 10;
@@ -58,8 +58,22 @@
     unclipEl.style.transform = `scale(${BODY_W / W}, ${BODY_H / H})`;
   };
 
+  // Frames come from requestAnimationFrame, with a timer as a backstop: WebKit stops rAF while the window
+  // counts as hidden (e.g. under GNOME's screenshot UI), which used to leave the pill frozen half-way.
+  let fallback: ReturnType<typeof setTimeout> | undefined;
+  function schedule() {
+    raf = requestAnimationFrame(tick);
+    clearTimeout(fallback);
+    fallback = setTimeout(() => {
+      cancelAnimationFrame(raf);
+      tick(performance.now());
+    }, 100);
+  }
+
   function tick(t: number) {
-    const dt = Math.min((t - last) / 1000, 0.1);
+    clearTimeout(fallback);
+    // The spring sub-steps internally, so a long gap (a stalled frame) is safe to apply in one go.
+    const dt = Math.min(Math.max(0, t - last) / 1000, 0.5);
     last = t;
     for (const s of [sw, sh, sr]) s.step(dt, cfg);
     apply();
@@ -72,7 +86,7 @@
       island.recheckHover(rest);
       return;
     }
-    raf = requestAnimationFrame(tick);
+    schedule();
   }
 
   $effect(() => {
@@ -86,7 +100,7 @@
     if (grow) setHitRect(s); // widen the hit area at once; narrow it only after the collapse
     if (me !== token || raf) return;
     last = performance.now();
-    raf = requestAnimationFrame(tick);
+    schedule();
   });
 
   onMount(() => {
@@ -168,8 +182,10 @@
           <b class="orange">{fmt(island.timerLeft)}</b>
         {:else if island.micApp && !island.media}
           <span class="dot" title="{island.micApp} is using the microphone"></span>
-        {:else}
-          <Eq on={island.media?.playing} />
+        {:else if island.media?.playing}
+          <Eq on />
+        {:else if island.media}
+          <svg class="ico paused" viewBox="0 0 24 24" aria-label="Paused"><rect x="7" y="6" width="3.5" height="12" rx="1.2" fill="currentColor" /><rect x="13.5" y="6" width="3.5" height="12" rx="1.2" fill="currentColor" /></svg>
         {/if}
       </div>
     {/if}
@@ -182,7 +198,7 @@
   .shape > i { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
   /* Plain colour boxes: WebKit composites them as solid-colour layers, nothing to rasterise. */
   .solid { background: #000; }
-  .body { width: 400px; height: 240px; }
+  .body { width: 480px; height: 240px; }
   .side { width: 48px; height: 240px; }
   /* Bottom corners: a quarter circle of radius --r, drawn in a fixed 48px box. */
   .corner { --r: 10px; width: 48px; height: 48px; }
@@ -197,8 +213,8 @@
   .pill {
     position: absolute;
     top: 0;
-    left: -200px;
-    width: 400px;
+    left: -240px;
+    width: 480px;
     height: 240px;
     transform-origin: 50% 0;
     overflow: hidden;
@@ -212,6 +228,7 @@
   .row.split { justify-content: space-between; }
   .ico { width: 20px; height: 20px; flex: none; }
   .orange { color: #ff9f0a; font-variant-numeric: tabular-nums; }
+  .ico.paused { width: 16px; height: 16px; color: #8e8e93; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #ff9f0a; box-shadow: 0 0 8px #ff9f0a; flex: none; animation: pulse 1.6s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: 0.45; } }
 </style>

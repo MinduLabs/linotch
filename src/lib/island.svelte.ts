@@ -23,16 +23,21 @@ export type Page = (typeof PAGES)[number];
 export type Mode = "idle" | "compact" | "expanded" | "alert";
 export type Size = { w: number; h: number; r: number };
 
-// Logical px. The OS window is a fixed 420x220 (win.rs); only the pill moves inside it.
+// Logical px. The OS window is a fixed 520x240 (win.rs); only the pill moves inside it.
 const SIZES = {
   idle: { w: 190, h: 27, r: 10 }, // MacBook notch
-  compact: { w: 250, h: 27, r: 13 },
+  compact: { w: 190, h: 27, r: 10 }, // music / timer: same size as the resting notch, only the content differs
   hud: { w: 300, h: 36, r: 18 }, // volume
   alert: { w: 340, h: 56, r: 28 }, // two-line alerts
   alertNotif: { w: 371, h: 84, r: 32 },
   btCard: { w: 371, h: 120, r: 40 },
-  expanded: { w: 371, h: 190, r: 40 },
 } satisfies Record<string, Size>;
+
+// Open island: each page gets the size its content needs (like Nusa), so the pill morphs between pages.
+// Chrome around a page body: padding, header, gaps and the page dots.
+const CHROME_H = 59;
+const BODY_MAX = 160; // window is 240 px tall; leave room for the spring overshoot
+const PAGE_W = 470; // one width for every page, like Nusa; the window is 520 wide
 
 class Island {
   media = $state<Media | null>(null);
@@ -45,8 +50,10 @@ class Island {
   muted = $state(false);
   /** App currently recording from the microphone (a call, Meet, Zoom...). */
   micApp = $state<string | null>(null);
-  /** Which page the open island shows; back to home every time it closes. */
+  /** Which page the open island shows; set back to home each time it opens. */
   page = $state<Page>("home");
+  /** The to-do page shows its add row (makes that page taller). */
+  todoAdding = $state(false);
   power = $state<Power | null>(null);
   btDevices = $state<BtDevice[]>([]);
   todos = $state<Todo[]>([]);
@@ -71,11 +78,36 @@ class Island {
             ? SIZES.hud
             : SIZES.alert
       : this.mode === "expanded"
-        ? SIZES.expanded
+        ? this.#pageSize()
         : this.mode === "compact"
           ? SIZES.compact
           : SIZES.idle,
   );
+
+  #pageSize(): Size {
+    const rows = (n: number, row: number) => n * row - (n > 0 ? 6 : 0);
+    let body: number;
+    switch (this.page) {
+      case "home":
+        body = this.media ? 124 : 112;
+        break;
+      case "devices":
+        body = Math.max(112, rows(this.btDevices.length, 52));
+        break;
+      case "timer":
+        body = 120;
+        break;
+      case "todo":
+        body = Math.max(112, rows(this.todos.length + (this.todoAdding ? 1 : 0), 40));
+        break;
+    }
+    const h = CHROME_H + Math.min(body, BODY_MAX);
+    // Same shape = same object: this runs on every media tick (twice a second), and a fresh object would
+    // restart the spring and re-send the hit rect each time.
+    if (this.#lastPageSize?.h !== h) this.#lastPageSize = { w: PAGE_W, h, r: 38 };
+    return this.#lastPageSize;
+  }
+  #lastPageSize: Size | null = null;
 
   timerLeft = $derived(this.timerEnd ? Math.max(0, Math.ceil((this.timerEnd - this.now) / 1000)) : 0);
 
@@ -226,15 +258,17 @@ class Island {
     }
   }
 
-  /** Closing always lands back on the home page next time. */
   #close() {
     this.hovering = false;
-    this.page = "home";
   }
 
   enter() {
     clearTimeout(this.#leaveTimeout);
-    if (!this.#suppressHover) this.hovering = true;
+    if (this.#suppressHover || this.hovering) return;
+    // Every opening starts on home. Reset here, not on close, so a closing page doesn't switch under the fade.
+    this.page = "home";
+    this.todoAdding = false;
+    this.hovering = true;
   }
   leave() {
     clearTimeout(this.#leaveTimeout);

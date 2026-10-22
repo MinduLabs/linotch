@@ -1,12 +1,18 @@
+<script module lang="ts">
+  // The page remounts on every hover. Remember which cover was last shown so it appears at once instead of
+  // fading in over the default one again.
+  let lastShown: string | null = null;
+</script>
+
 <script lang="ts">
   // Album art with a default cover underneath: shown when there is no art, while the image loads, after a
   // skip until the new track's art arrives, and if the image fails to load.
   // The default is one red-pink gradient: the same colour family as the wave, like Apple Music's placeholder.
   let { src = null, small = false }: { src?: string | null; small?: boolean } = $props();
-  let loaded = $state(false);
+  // svelte-ignore state_referenced_locally
+  let loaded = $state(!!src && src === lastShown);
   $effect(() => {
-    src;
-    loaded = false;
+    loaded = !!src && src === lastShown;
   });
 </script>
 
@@ -17,7 +23,7 @@
     <circle cx="16.5" cy="15" r="2.6" fill="currentColor" />
   </svg>
   {#if src}
-    <img {src} alt="" class:loaded onload={() => (loaded = true)} onerror={() => (loaded = false)} />
+    <img {src} alt="" class:loaded onload={() => ((loaded = true), (lastShown = src ?? null))} onerror={() => (loaded = false)} />
   {/if}
 </div>
 
@@ -39,6 +45,6 @@
   .cover.small { width: 19px; height: 19px; border-radius: 5px; }
   .note { width: 50%; height: 50%; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25)); }
   .small .note { filter: none; }
-  img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.2s ease-out; }
-  img.loaded { opacity: 1; }
+  img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+  img.loaded { opacity: 1; transition: opacity 0.2s ease-out; }
 </style>

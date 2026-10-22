@@ -53,6 +53,14 @@ fn art_to_data_uri(url: &str) -> Option<String> {
     Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
 
+/// The url, plus size and mtime for a local file, so a file rewritten under the same name counts as new art.
+fn art_identity(url: &str) -> String {
+    let Some(path) = url.strip_prefix("file://") else { return url.to_string() };
+    let Ok(meta) = std::fs::metadata(path) else { return url.to_string() };
+    let secs = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+    format!("{url}#{}-{secs}", meta.len())
+}
+
 fn snapshot(conn: &Connection, art_cache: &mut HashMap<String, Option<String>>) -> zbus::Result<Option<Media>> {
     let dbus = Proxy::new(conn, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus")?;
     let names: Vec<String> = dbus.call("ListNames", &())?;
@@ -77,14 +85,16 @@ fn snapshot(conn: &Connection, art_cache: &mut HashMap<String, Option<String>>) 
         // Live streams report no length, 0, or a sentinel like i64::MAX. Normalise all of those to 0 = unknown.
         let length = if length <= 0 || length > 7 * 24 * 3600 * 1_000_000 { 0 } else { length };
         let art_url = md.get("mpris:artUrl").and_then(|v| v.downcast_ref::<&str>().ok());
-        let art_key = art_url.unwrap_or("").to_string();
+        // Chromium rewrites the same temp file in place (first its own logo, later the real cover), so the url
+        // alone is not a key: a stale "no art" would stick for the whole track. Add the file's size and mtime.
+        let art_key = art_url.map(art_identity).unwrap_or_default();
         let art = art_url
             .and_then(|u| {
                 // Browsers hand out a new temp file per track, so the cache would grow forever: keep a few.
-                if !art_cache.contains_key(u) && art_cache.len() >= 8 {
+                if !art_cache.contains_key(&art_key) && art_cache.len() >= 8 {
                     art_cache.clear();
                 }
-                art_cache.entry(u.to_string()).or_insert_with(|| art_to_data_uri(u)).clone()
+                art_cache.entry(art_key.clone()).or_insert_with(|| art_to_data_uri(u)).clone()
             });
 
         let playing = status == "Playing";

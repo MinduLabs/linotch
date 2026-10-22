@@ -5,7 +5,6 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { tick } from "svelte";
 
-  let adding = $state(false);
   let text = $state("");
   let time = $state("");
   let input: HTMLInputElement | undefined = $state();
@@ -17,7 +16,7 @@
   const focusWindow = () => getCurrentWindow().setFocus().catch(() => {});
 
   async function openAdd() {
-    adding = true;
+    island.todoAdding = true;
     await focusWindow();
     await tick();
     input?.focus();
@@ -37,13 +36,13 @@
     island.addTodo(text, dueFrom(time));
     text = "";
     time = "";
-    adding = false;
+    island.todoAdding = false;
   }
 
   function onKey(e: KeyboardEvent) {
     if (e.key === "Enter") save();
     if (e.key === "Escape") {
-      adding = false;
+      island.todoAdding = false;
       text = "";
     }
   }
@@ -55,14 +54,14 @@
   <div class="side">
     <div class="count"><b>{done}</b><span>/{island.todos.length}</span></div>
     <div class="label">Done</div>
-    <button class="chip add" class:on={adding} onclick={() => (adding ? (adding = false) : openAdd())}>
+    <button class="chip add" class:on={island.todoAdding} onclick={() => (island.todoAdding ? (island.todoAdding = false) : openAdd())}>
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" /></svg>
       Add
     </button>
   </div>
 
   <div class="list">
-    {#if adding}
+    {#if island.todoAdding}
       <div class="new">
         <input
           bind:this={input}
@@ -92,7 +91,7 @@
         </button>
       </div>
     {:else}
-      {#if !adding}<div class="empty">Nothing to do. Add a task.</div>{/if}
+      {#if !island.todoAdding}<div class="empty">Nothing to do. Add a task.</div>{/if}
     {/each}
   </div>
 </div>

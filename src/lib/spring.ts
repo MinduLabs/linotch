@@ -4,8 +4,9 @@ export type SpringCfg = { response: number; damping: number };
 // boring.notch uses 0.42/0.8 (visible bounce). The tail of that bounce looks like a hitch on a
 // webview that renders at a lower frame rate, so open is nearly critically damped instead.
 export const OPEN: SpringCfg = { response: 0.38, damping: 0.92 };
-// Closing used 0.45 and crept towards the target for ~0.65 s; 0.32 lands in ~0.45 s.
-export const CLOSE: SpringCfg = { response: 0.32, damping: 1 };
+// Same period as opening, so collapsing is not quicker than expanding (0.32 felt like a jolt now that the open
+// pill is big). Critically damped: no rebound at the bottom.
+export const CLOSE: SpringCfg = { response: 0.38, damping: 1 };
 
 export class Spring {
   v = 0;

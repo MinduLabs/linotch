@@ -2,8 +2,8 @@ use tauri::{AppHandle, Manager, PhysicalPosition};
 
 /// Fixed window size (logical px): big enough for the largest pill plus spring overshoot.
 /// It never resizes, because resizing a transparent X11 window mid-animation glitches.
-pub const WIDTH: f64 = 420.0;
-pub const HEIGHT: f64 = 220.0;
+pub const WIDTH: f64 = 520.0;
+pub const HEIGHT: f64 = 240.0;
 
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let Some(w) = app.get_webview_window("main") else {
