@@ -1,10 +1,9 @@
 <script lang="ts">
   // Bluetooth connect / disconnect card, iPhone-style: the device comes in with a spring, the battery ring
-  // sweeps up to its level. Apple headphones get their own drawing; every other device one shared
-  // illustration (a glowing disc with the device type and a Bluetooth ripple).
+  // sweeps up to its level. Devices with a product photo show it; the rest get the blue Bluetooth icon.
   import type { BtDevice } from "$lib/island.svelte";
-  import AirPodsArt from "$lib/ui/AirPodsArt.svelte";
-  import DeviceGlyph from "$lib/ui/DeviceGlyph.svelte";
+  import DeviceArt from "$lib/ui/DeviceArt.svelte";
+  import { photoFor } from "$lib/ui/device-art";
   import Ring from "$lib/ui/Ring.svelte";
   import { onMount } from "svelte";
 
@@ -20,14 +19,8 @@
 
 <div class="card" class:shown class:off={!connected}>
   <div class="art">
-    {#if device.model}
-      <AirPodsArt model={device.model} open={shown && connected} />
-    {:else}
-      <div class="disc">
-        {#if connected}<i class="ripple"></i><i class="ripple two"></i>{/if}
-        <span class="glyph"><DeviceGlyph {device} /></span>
-      </div>
-    {/if}
+    {#if connected && !photoFor(device)}<i class="ripple"></i><i class="ripple two"></i>{/if}
+    <span class="pic"><DeviceArt {device} /></span>
   </div>
 
   <div class="text">
@@ -50,10 +43,9 @@
   .shown .art { transform: none; opacity: 1; }
   .off .art { filter: grayscale(1) brightness(0.7); }
 
-  .disc { position: relative; width: 100%; height: 100%; display: grid; place-items: center; }
-  .disc::before { content: ""; position: absolute; inset: 12px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #5ac8fa, #0a84ff 55%, #0040dd); box-shadow: 0 6px 22px rgba(10, 132, 255, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.45); }
-  .glyph { position: relative; width: 34px; height: 34px; color: #fff; }
-  .ripple { position: absolute; inset: 12px; border-radius: 50%; border: 2px solid rgba(90, 200, 250, 0.6); animation: ripple 2s cubic-bezier(0.22, 1, 0.36, 1) 0.4s infinite; opacity: 0; }
+  .art { position: relative; display: grid; place-items: center; }
+  .pic { position: relative; width: 70px; height: 70px; }
+  .ripple { position: absolute; inset: 14px; border-radius: 50%; border: 2px solid rgba(10, 132, 255, 0.5); animation: ripple 2s cubic-bezier(0.22, 1, 0.36, 1) 0.4s infinite; opacity: 0; }
   .ripple.two { animation-delay: 1.4s; }
   @keyframes ripple { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.45); opacity: 0; } }
 

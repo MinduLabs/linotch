@@ -6,11 +6,11 @@ It sits at the top-centre of the screen, shrinks to a notch when idle and spring
 ## Features
 
 - **Now playing** (any MPRIS player: Spotify, browsers, VLC): cover art, seek bar, previous / play / next.
-- **Notifications** shown inside the island with the sending app's icon; click one to open that app. GNOME's own banners are switched off while Linotch runs and restored on exit.
+- **Notifications** shown inside the island with the sending app's icon; click one to open that app. Off by default: turn on *Enable notch notifications* in the tray menu. While it is on, GNOME's own banners are switched off, and they come back when it is turned off or Linotch exits.
 - **Alerts**: volume, charger plugged / unplugged, Bluetooth device connected / disconnected with battery level.
 - **Microphone in use** (calls in Meet, Zoom, ...): orange dot and an alert naming the app.
 - **Timer** with 1 / 5 / 10 / 25 minute presets and a clock when nothing else is going on.
-- Do-not-disturb bell, tray menu with *Enable / Disable notch bar* and *Enable / Disable auto start*.
+- Do-not-disturb bell, tray menu with *Enable / Disable notch bar*, *Enable / Disable notch notifications* and *Enable / Disable auto start*.
 
 ## Requirements
 

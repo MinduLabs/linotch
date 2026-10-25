@@ -38,7 +38,9 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle();
             settings::install_extension();
-            settings::take_over_banners();
+            if settings::notifications() {
+                settings::take_over_banners();
+            }
             // SIGINT/SIGTERM (logout, `kill`) must still go through RunEvent::Exit so GNOME's banners come back.
             if let Ok(mut signals) = signal_hook::iterator::Signals::new([signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM]) {
                 let h = handle.clone();
@@ -64,6 +66,7 @@ pub fn run() {
             media::media_seek,
             notif::open_app,
             alarm::alarm,
+            alarm::chime,
             power::power_now,
             bt::bt_devices,
             todos::todos_load,

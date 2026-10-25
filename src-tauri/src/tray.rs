@@ -13,13 +13,18 @@ fn notch_label() -> &'static str {
     if settings::topbar() { "Disable notch bar" } else { "Enable notch bar" }
 }
 
+fn notifications_label() -> &'static str {
+    if settings::notifications() { "Disable notch notifications" } else { "Enable notch notifications" }
+}
+
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let autostart = MenuItem::with_id(app, "autostart", autostart_label(), true, None::<&str>)?;
     let notch = MenuItem::with_id(app, "notch", notch_label(), true, None::<&str>)?;
+    let notifs = MenuItem::with_id(app, "notifications", notifications_label(), true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&notch, &autostart, &PredefinedMenuItem::separator(app)?, &quit])?;
+    let menu = Menu::with_items(app, &[&notch, &notifs, &autostart, &PredefinedMenuItem::separator(app)?, &quit])?;
 
-    let (autostart_i, notch_i) = (autostart.clone(), notch.clone());
+    let (autostart_i, notch_i, notifs_i) = (autostart.clone(), notch.clone(), notifs.clone());
     TrayIconBuilder::with_id("linotch")
         .icon(tauri::include_image!("icons/tray.png"))
         .tooltip("Linotch")
@@ -33,6 +38,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 // The first time, GNOME only picks the extension up after the next login.
                 settings::set_topbar(!settings::topbar());
                 let _ = notch_i.set_text(notch_label());
+            }
+            "notifications" => {
+                settings::set_notifications(!settings::notifications());
+                let _ = notifs_i.set_text(notifications_label());
             }
             "quit" => app.exit(0),
             _ => {}

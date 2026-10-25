@@ -91,6 +91,9 @@ pub fn spawn(app: AppHandle) {
                     continue;
                 }
                 last = Some((key, Instant::now()));
+                if !crate::settings::notifications() {
+                    continue;
+                }
                 let entry = desktop_entry.take();
                 let icon = icons::resolve(&strings[1]).or_else(|| app_icon(entry.as_deref(), &strings[0]));
                 let _ = app.emit(

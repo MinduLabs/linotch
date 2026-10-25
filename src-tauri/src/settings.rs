@@ -101,8 +101,33 @@ pub fn set_topbar(on: bool) -> bool {
     known
 }
 
+// ---------- notifications in the notch ----------
+// Off by default. When on, Linotch shows notifications and takes over GNOME's banners (below); when off,
+// GNOME shows them as usual. Stored as a marker file.
+
+fn notifications_file() -> PathBuf {
+    home().join(".config/linotch/notifications-on")
+}
+
+pub fn notifications() -> bool {
+    notifications_file().exists()
+}
+
+pub fn set_notifications(on: bool) {
+    let path = notifications_file();
+    if on {
+        let _ = fs::create_dir_all(path.parent().unwrap());
+        let _ = fs::write(path, "");
+        take_over_banners();
+    } else {
+        let _ = fs::remove_file(path);
+        restore_banners();
+    }
+}
+
 // ---------- GNOME's own notification banners ----------
-// While Island runs it owns notifications, so GNOME's banners are switched off and restored on exit.
+// While notch notifications are on, Linotch owns notifications: GNOME's banners are switched off and restored
+// when they are turned off or on exit.
 
 fn banners_marker() -> PathBuf {
     home().join(".config/linotch/banners-were-on")

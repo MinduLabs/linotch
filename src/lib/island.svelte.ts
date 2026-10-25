@@ -14,7 +14,10 @@ export type Alert =
 export type Power = { percent: number; charging: boolean; plugged: boolean };
 /** `model` is set for Apple headphones, which get their own drawing. */
 export type BtDevice = { name: string; icon: string; model: "airpods" | "airpods-pro" | "airpods-max" | null; battery: number | null };
-export type Todo = { id: number; text: string; done: boolean; due: number | null; reminded: boolean };
+export type Todo = { id: number; text: string; done: boolean; due: number | null; reminded: boolean; doneAt?: number };
+
+/** A ticked task disappears this long after it was ticked. */
+const DONE_KEEP_MS = 3 * 60 * 60 * 1000;
 
 /** Pages of the open island, in order. The pill keeps one size for all of them. */
 export const PAGES = ["home", "devices", "timer", "todo"] as const;
@@ -92,13 +95,13 @@ class Island {
         body = this.media ? 124 : 112;
         break;
       case "devices":
-        body = Math.max(112, rows(this.btDevices.length, 52));
+        body = 120; // same as the timer: devices share the page instead of stacking
         break;
       case "timer":
         body = 120;
         break;
       case "todo":
-        body = Math.max(112, rows(this.todos.length + (this.todoAdding ? 1 : 0), 40));
+        body = Math.max(112, rows(this.todos.length + (this.todoAdding ? 1 : 0), 40) + (this.todoAdding ? 30 : 0)); // 30 = reminder chips under the input
         break;
     }
     const h = CHROME_H + Math.min(body, BODY_MAX);
@@ -141,10 +144,12 @@ class Island {
         this.timerEnd = null;
         this.ringAlarm();
       }
+      this.#purgeDone();
       const due = this.todos.find((t) => !t.done && !t.reminded && t.due !== null && t.due <= this.now);
       if (due) {
         this.#updateTodo(due.id, { reminded: true });
         this.pushAlert({ kind: "todo", text: due.text }, 6000);
+        invoke("chime").catch(() => {});
       }
     }, 250);
 
@@ -155,6 +160,7 @@ class Island {
       (json) => {
         try {
           this.todos = JSON.parse(json);
+          this.#purgeDone();
         } catch {}
       },
       () => {},
@@ -288,6 +294,18 @@ class Island {
     this.todos = this.todos.map((t) => (t.id === id ? { ...t, ...patch } : t));
     this.#saveTodos();
   }
+  #nextPurge = 0;
+  /** Drops tasks that were ticked more than DONE_KEEP_MS ago (checked at most every 30 s). */
+  #purgeDone() {
+    const now = Date.now();
+    if (now < this.#nextPurge) return;
+    this.#nextPurge = now + 30_000;
+    const keep = this.todos.filter((t) => !t.done || now - (t.doneAt ?? now) < DONE_KEEP_MS);
+    if (keep.length !== this.todos.length) {
+      this.todos = keep;
+      this.#saveTodos();
+    }
+  }
   addTodo(text: string, due: number | null) {
     const t = text.trim();
     if (!t) return;
@@ -296,7 +314,7 @@ class Island {
   }
   toggleTodo(id: number) {
     const t = this.todos.find((x) => x.id === id);
-    if (t) this.#updateTodo(id, { done: !t.done });
+    if (t) this.#updateTodo(id, { done: !t.done, doneAt: t.done ? undefined : Date.now() });
   }
   removeTodo(id: number) {
     this.todos = this.todos.filter((t) => t.id !== id);

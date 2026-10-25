@@ -3,6 +3,7 @@
   import { island, fmt } from "$lib/island.svelte";
   import Cover from "$lib/Cover.svelte";
   import Ring from "$lib/ui/Ring.svelte";
+  import { tip } from "$lib/ui/tip";
 
   const m = $derived(island.media);
   const pos = $derived(m && m.length > 0 ? m.position / m.length : 0);
@@ -22,8 +23,8 @@
     <div class="top">
       <Cover src={m.art} />
       <div class="meta">
-        <strong>{m.title}</strong>
-        <span>{m.artist}</span>
+        <strong use:tip={m.title}>{m.title}</strong>
+        <span use:tip={m.artist}>{m.artist}</span>
       </div>
     </div>
     <div class="seekrow">

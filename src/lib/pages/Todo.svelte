@@ -4,9 +4,14 @@
   import { island } from "$lib/island.svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { tick } from "svelte";
+  import { tip } from "$lib/ui/tip";
 
   let text = $state("");
-  let time = $state("");
+  // Reminder presets, in minutes from now. Nothing is chosen by default; tap a chip to pick one, again to clear.
+  // (No native time picker: it showed a stray "12:30 PM" and looked out of place.)
+  const REMIND = [15, 30, 60, 120, 240];
+  let remind = $state<number | null>(null);
+  const label = (m: number) => (m < 60 ? `${m}m` : `${m / 60}h`);
   let input: HTMLInputElement | undefined = $state();
 
   const done = $derived(island.todos.filter((t) => t.done).length);
@@ -22,20 +27,10 @@
     input?.focus();
   }
 
-  /** "HH:MM" today, or tomorrow when that time has already passed. */
-  function dueFrom(hhmm: string): number | null {
-    if (!hhmm) return null;
-    const [h, m] = hhmm.split(":").map(Number);
-    const d = new Date();
-    d.setHours(h, m, 0, 0);
-    if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
-    return d.getTime();
-  }
-
   function save() {
-    island.addTodo(text, dueFrom(time));
+    island.addTodo(text, remind ? Date.now() + remind * 60_000 : null);
     text = "";
-    time = "";
+    remind = null;
     island.todoAdding = false;
   }
 
@@ -44,6 +39,7 @@
     if (e.key === "Escape") {
       island.todoAdding = false;
       text = "";
+      remind = null;
     }
   }
 
@@ -62,6 +58,7 @@
 
   <div class="list">
     {#if island.todoAdding}
+      <div class="newbox">
       <div class="new">
         <input
           bind:this={input}
@@ -71,10 +68,16 @@
           onkeydown={onKey}
           onblur={() => island.recheckHover(island.size)}
         />
-        <input class="time" type="time" bind:value={time} onpointerdown={focusWindow} onkeydown={onKey} aria-label="Remind at" />
         <button class="ok" onclick={save} aria-label="Save">
           <svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
         </button>
+      </div>
+      <div class="remind">
+        <svg viewBox="0 0 24 24"><path d="M6 17h12l-1.6-2.2V10.5a4.4 4.4 0 0 0-8.8 0v4.3zm4 2.5a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        {#each REMIND as m}
+          <button class="r" class:on={remind === m} onclick={() => (remind = remind === m ? null : m)}>{label(m)}</button>
+        {/each}
+      </div>
       </div>
     {/if}
     {#each sorted as t (t.id)}
@@ -83,7 +86,7 @@
           {#if t.done}<svg viewBox="0 0 24 24"><path d="m6.5 12.5 3.5 3.5 7.5-8" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" /></svg>{/if}
         </button>
         <span class="textcol">
-          <span class="text">{t.text}</span>
+          <span class="text" use:tip={t.text}>{t.text}</span>
           {#if t.due && !t.done}<span class="due"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2.4" /><path d="M12 8v4l2.5 1.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" /></svg>{dueLabel(t.due)}</span>{/if}
         </span>
         <button class="del" onclick={() => island.removeTodo(t.id)} aria-label="Delete">
@@ -125,10 +128,16 @@
   .del:hover { color: #ff453a; }
   .del svg { width: 100%; height: 100%; display: block; }
 
-  .new { display: flex; align-items: center; gap: 5px; background: #1c1c1e; border-radius: 11px; padding: 3px 4px 3px 10px; box-shadow: 0 0 0 1.5px rgba(48, 209, 88, 0.55); }
-  .new input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: #fff; font: inherit; font-size: 12.5px; padding: 3px 0; }
+  .new { display: flex; align-items: center; gap: 6px; background: #1c1c1e; border-radius: 12px; padding: 3px 4px 3px 11px; transition: background 0.15s; }
+  .new:focus-within { background: #26262a; }
+  .new input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: #fff; font: inherit; font-size: 12.5px; padding: 4px 0; caret-color: #30d158; }
   .new input::placeholder { color: #636366; }
-  .new .time { flex: none; width: 62px; color: #30d158; font-size: 11.5px; color-scheme: dark; }
+  .newbox { display: flex; flex-direction: column; gap: 5px; }
+  .remind { display: flex; align-items: center; gap: 5px; padding-left: 2px; color: #636366; }
+  .remind svg { width: 14px; height: 14px; flex: none; margin-right: 2px; }
+  .r { flex: 1; height: 22px; border-radius: 11px; background: #1c1c1e; color: #aeaeb2; font-size: 11px; font-variant-numeric: tabular-nums; transition: background 0.15s, color 0.15s; }
+  .r:hover { background: #2c2c2e; }
+  .r.on { background: rgba(48, 209, 88, 0.2); color: #30d158; }
   .ok { width: 22px; height: 22px; flex: none; border-radius: 50%; background: #30d158; color: #000; display: grid; place-items: center; }
   .ok svg { width: 13px; height: 13px; }
   .empty { color: #636366; font-size: 12px; text-align: center; }

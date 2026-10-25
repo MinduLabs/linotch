@@ -64,3 +64,14 @@ pub fn alarm(on: bool) {
         }
     });
 }
+
+/// A single soft "message" sound, for a to-do reminder (the timer alarm rings until dismissed instead).
+#[tauri::command]
+pub fn chime() {
+    const FILE: &str = "/usr/share/sounds/freedesktop/stereo/message.oga";
+    let _ = host::command("canberra-gtk-play")
+        .args(["-i", "message"])
+        .spawn()
+        .or_else(|_| host::command("pw-play").arg(FILE).spawn())
+        .or_else(|_| host::command("paplay").arg(FILE).spawn());
+}
